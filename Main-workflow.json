@@ -1,0 +1,426 @@
+{
+  "name": "Main workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "chat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        340,
+        -40
+      ],
+      "id": "3c432b62-03a9-4ecd-b5d0-d9ae01f4ea5a",
+      "name": "Webhook",
+      "webhookId": "1af4f98c-19e1-448a-abff-e7a8d6715310"
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Returns a list of tables to answer in all MySQL schemas.",
+        "operation": "executeQuery",
+        "query": "SELECT\ntable_schema,\ntable_name\nFROM\n    information_schema.tables\nWHERE\n    table_type = 'BASE TABLE'\n    AND table_schema NOT IN ('mysql', 'information_schema', 'performance_schema', 'sys')\nORDER BY\n    table_schema, table_name;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.4,
+      "position": [
+        1660,
+        180
+      ],
+      "id": "07eea9e0-abb4-471b-8d02-314b47c5a9f7",
+      "name": "Get_DB_Schema",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Returns column names, types, and relationships for a given table in a given warehouse schema. Requires inputs: table_name and schema_name = warehouse .",
+        "operation": "executeQuery",
+        "query": "SELECT\n    c.column_name,\n    c.column_comment,\n    c.data_type,\n    c.is_nullable,\n    c.column_default,\n    tc.constraint_type,\n    kcu.table_name AS referenced_table,\n    kcu.column_name AS referenced_column\nFROM\n    information_schema.columns c\nLEFT JOIN\n    information_schema.key_column_usage kcu\n    ON c.table_name = kcu.table_name\n    AND c.column_name = kcu.column_name\nLEFT JOIN\n    information_schema.table_constraints tc\n    ON kcu.constraint_name = tc.constraint_name\n    AND tc.constraint_type = 'FOREIGN KEY'\nWHERE\nc.table_name = '{{ $fromAI(\"table_name\") }}'\nAND c.table_schema = '{{ $fromAI(\"schema_name\") }}'\nORDER BY\n    c.ordinal_position;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.4,
+      "position": [
+        1920,
+        180
+      ],
+      "id": "2a0df2cc-64b9-49e4-82c6-fdc4bb096168",
+      "name": "Get _Table_Definition",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "descriptionType": "manual",
+        "toolDescription": "Executes a SQL SELECT query and returns results from the database. Input: sql_query.",
+        "operation": "executeQuery",
+        "query": "{{ $fromAI(\"sql_query\", \"SQL Query\") }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.4,
+      "position": [
+        2140,
+        160
+      ],
+      "id": "5b7539d1-dd83-4234-a9d1-5f28005e8632",
+      "name": "Execute_actual_query",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "deepseek/deepseek-chat-v3-0324:free",
+          "mode": "list",
+          "cachedResultName": "deepseek/deepseek-chat-v3-0324:free"
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        540,
+        580
+      ],
+      "id": "457417db-bad4-4cda-b533-a0d2293a6b00",
+      "name": "OpenAI Chat Model",
+      "credentials": {
+        "openAiApi": {
+          "id": "TkFiUGMjC7OpgKOe",
+          "name": "SAN"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"reply\": \"{{ $json.output }}\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        2100,
+        -60
+      ],
+      "id": "ff57e625-4f39-4833-b008-0638645e3ed8",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('Webhook').item.json.body.userId }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        1400,
+        180
+      ],
+      "id": "5969bc48-8e28-4640-b7b3-e24a621eaf1f",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('Webhook').item.json.body.message }}",
+        "options": {
+          "systemMessage": "You are a careful, step-by-step SQL agent that interacts with a live MySQL database using predefined tools.\nYour job is to answer user questions by retrieving accurate data from the database — never by guessing or relying solely on definitions.\n\n🧠 Workflow (Must Follow This 4-Step Sequence):\n1. Check Memory (for reuse only)\n→ Check memory to reuse previous schema, table definitions, or past query results.\n→ ⚠️ Do NOT use memory to directly generate SQL.\n→ If any required data is missing, continue to the tools.\n\n2. Get_DB_Schema\nUse this tool to retrieve all available table names and schema names.\nDo not skip unless you are 100% sure the info is already in memory.\n\n3. Get_Table_Definition  \nCall this tool for any candidate table **only** to understand its **column names**, **data types**, and **relationships** (e.g., foreign keys).  \n❌ Do **not** assume business meaning, value distributions, or data format from this tool.  \n✅ To understand how data is actually stored or interpreted (e.g., units, formatting, typical values), use:\n- the **data dictionary** for definitions  \n- a **sample query** (e.g., SELECT ... LIMIT 10) to view actual data\n\n4. Execute_SQL_Query\nOnce table structure is confirmed, generate and run a valid SELECT query.\nThen summarize the result for the user.\n\n🔒 Rules & Guardrails\n✅ Use only SELECT queries. Never use INSERT, UPDATE, DELETE, DROP, or any DML/DDL.\n✅ Limit results to 10 rows unless user asks for more.\n✅ Do not use SELECT *. Only request relevant columns.\n✅ If a query fails, revise based on schema and try again.\n✅ Never assume data is missing based only on the data dictionary or column names. You must query the table to verify.\n\n📌 Important Reasoning Steps\nUse column names, data types, and comments from the schema AND data dictionary to understand meaning.\n\nPrioritize tables whose columns match keywords from the user’s question.\n\nCheck for foreign keys or similar names if data might be spread across multiple tables.\n\nMatch values with flexibility (e.g., WHERE PLANT_NAME LIKE '%china%').\n\n🔍 Data Exploration Is Required\nBefore concluding that a table doesn't have relevant data + always check the sql note before generating query:\n\nsql\nCopy\nEdit\nSELECT * FROM warehouse.{candidate_table} LIMIT 10\nUse this to verify value formats (like \"CHINA\" vs \"China Warehouse\") and column presence.\n\n⚠️ Do not assume based on table name or description — always explore the actual data.\n\n🧪 Example Thought Process\nUser: “How much cost for Inventory Storage per MT per day in China warehouse?”\n\n→ Candidate table: operationCost\n→ Get definition → See cost columns but no warehouse\n→ Run: SELECT * FROM operationCost LIMIT 10\n→ Check if any column (e.g., PLANT_NAME, LOCATION) might help match “China”\n→ Try: WHERE PLANT_NAME LIKE '%china%' if exists\n→ If no match, respond based on actual query result — not assumption\n\n🛠️ Available Tools\nGet DB Schema and Tables List\n→ Lists all user-defined tables and their schema names.\n\nGet Table Definition\n→ Returns column names, types, and foreign key info for a given table.\n\nExecute Actual Query\n→ Runs a SELECT query and returns the result from the database.\n\n\n📊 Data Dictionary (for Reference Only — Always Verify with Query)\n1. Table: inventory – Monthly snapshot of stock by Plant + Material + Batch\n\nBALANCE_AS_OF_DATE\n\nPLANT_NAME\n\nMATERIAL_NAME\n\nUNRESRICTED_STOCK\n\nSTOCK_UNIT\n\nSTOCK_SELL_VALUE\n\nCURRENCY\n\n2. Table: inbound – Material import transactions\n\nINBOUND_DATE\n\nPLANT_NAME\n\nMATERIAL_NAME\n\nNET_QUANTITY_MT\n\n3. Table: outbound – Material export (sales) transactions\n\nOUTBOUND_DATE\n\nPLANT_NAME\n\nMODE_OF_TRANSPORT\n\nMATERIAL_NAME\n\nCUSTOMER_NUMBER\n\nNET_QUANTITY_MT\n\n4. Table: materialmaster – Material metadata\n\nMATERIAL_NAME\n\nPOLYMER_TYPE\n\nSHELF_LIFE_IN_MONTH\n\nDOWNGRADE_VALUE_LOST_PERCENT\n\n5. Table: operationcost – Storage and transfer cost\n(all the information about cost relevent with this table)\nInventory Storage per MT per day\n\nTransfer cost per container (24.75MT)\n\n6. Table: forecast – Predicted outbound & inventory\n\nPredicted Outbound (KT)\n\nPredicted Inventory (KT)\n\n➕ Appendix\nMT = Metric Ton\n\nKT = Kiloton (1,000 MT)\n\n🔍 SQL Notes (Formatting & Case Sensitivity)\n\n- All datetime values in the database are stored in MM-DD-YYYY format.\n  → When filtering by date, ensure the date format matches exactly (e.g., '12-15-2023').\n\n- String comparisons should always use **case-insensitive logic**:\n  → Wrap both sides with `LOWER()`, e.g., `LOWER(PLANT_NAME) = 'singapore-warehouse'`\n  → This ensures consistent results even if text casing varies in the data.\n\n🤖 Answer Guidelines\n- If the answer includes a **numeric value with units**, always include the appropriate unit:\n  → Example: If the user asks about stock sell value, return the amount **along with the currency** if it's available (e.g., \"500,000 USD\").\n  → If the unit (e.g., currency) **does not exist in the data**, mention that the value has **no defined unit** in the database.\n\n- Be **precise and concise**. Do not include extra explanations unless the user asks for them.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        -60
+      ],
+      "id": "f627d5ef-170e-485e-9d96-36086a2e97bd",
+      "name": "query"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.body.message }}",
+        "options": {
+          "systemMessage": "You are an intelligent router agent designed to decide which sub-agent should handle a user's warehouse-related question. You must choose **only one** sub-agent based on the user's intent.\n\nYou have access to the following three agents:\n\n1. 📦 Query Agent – Use this agent if the question is a factual or simple query about warehouse data. These include:\n   - Stock levels\n   - Inventory balances\n   - Inbound/outbound transactions (past or present)\n   - Any question that does **not** involve prediction or suggestion\n\n2. 📈 Predict Agent – Use this agent if the user is asking for **weekly outbound predictions** or **forecasting future demand or supply**.\n\n3. 🔧 Optimization Agent – Use this agent if the user is asking for:\n   - Suggestions or advice\n   - Strategy or improvement\n   - Outbound process management\n   - Ways to optimize warehouse performance\n\n---\n\n⚠️ Do not guess or generate the answer yourself.\n\nYour only task is to return the name of the correct agent in lowercase:\n- `query`\n- `predict`\n- `optimization`\n\nExamples:\n\nUser: \"How much inventory do we have for material X?\" → `query`\n\nUser: \"What will the outbound be next week?\" → `predict`\n\nUser: \"How can we reduce outbound costs?\" → `optimization`\n\nIf the question is ambiguous or doesn't fit any category, return `query` by default.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        560,
+        -40
+      ],
+      "id": "9b7bd70d-60d0-4937-b46d-0f8a90143781",
+      "name": "router"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.output }}",
+                    "rightValue": "query",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    },
+                    "id": "bf0d9081-7987-4bf1-a2d3-d3238264234c"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "72d7c7fb-e8cf-4d14-8f4d-2d1e7280e52d",
+                    "leftValue": "={{ $json.output }}",
+                    "rightValue": "predict",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "1694c2d8-7db6-43f6-bcd8-553c2e6b2fd6",
+                    "leftValue": "={{ $json.output }}",
+                    "rightValue": "optimization",
+                    "operator": {
+                      "type": "string",
+                      "operation": "contains"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        1000,
+        -40
+      ],
+      "id": "f1969d3e-11da-42cf-aa7a-02505d062624",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "yV3S61fz6xBYYbWC",
+          "mode": "list",
+          "cachedResultName": "Predict"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1400,
+        340
+      ],
+      "id": "0f2fad84-887f-4f84-89b8-28994140ec96",
+      "name": "Prediction workflow"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "router",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get_DB_Schema": {
+      "ai_tool": [
+        [
+          {
+            "node": "query",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get _Table_Definition": {
+      "ai_tool": [
+        [
+          {
+            "node": "query",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute_actual_query": {
+      "ai_tool": [
+        [
+          {
+            "node": "query",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "router",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "query",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "query",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "query": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "router": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "query",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prediction workflow",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Prediction workflow": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "3e2e605b-43f4-4a83-b8b2-932ca186473a",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "a0b68c5daecd39256f0202a7549a67532aead671cc22ccd597f36cc6f8ccc86b"
+  },
+  "id": "A5RALtJEfQBpSmrF",
+  "tags": []
+}
