@@ -29,8 +29,8 @@
       "type": "n8n-nodes-base.mySqlTool",
       "typeVersion": 2.4,
       "position": [
-        1660,
-        180
+        1640,
+        -780
       ],
       "id": "07eea9e0-abb4-471b-8d02-314b47c5a9f7",
       "name": "Get_DB_Schema",
@@ -52,8 +52,8 @@
       "type": "n8n-nodes-base.mySqlTool",
       "typeVersion": 2.4,
       "position": [
-        1920,
-        180
+        1900,
+        -780
       ],
       "id": "2a0df2cc-64b9-49e4-82c6-fdc4bb096168",
       "name": "Get _Table_Definition",
@@ -75,8 +75,8 @@
       "type": "n8n-nodes-base.mySqlTool",
       "typeVersion": 2.4,
       "position": [
-        2140,
-        160
+        2120,
+        -800
       ],
       "id": "5b7539d1-dd83-4234-a9d1-5f28005e8632",
       "name": "Execute_actual_query",
@@ -115,14 +115,14 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\n  \"reply\": \"{{ $json.output }}\"\n}",
+        "responseBody": "={\n  \"reply\": {{ $json.output.toJsonString() }}\n}",
         "options": {}
       },
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1.4,
       "position": [
-        2100,
-        -60
+        4680,
+        120
       ],
       "id": "ff57e625-4f39-4833-b008-0638645e3ed8",
       "name": "Respond to Webhook"
@@ -135,8 +135,8 @@
       "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
       "typeVersion": 1.3,
       "position": [
-        1400,
-        180
+        1380,
+        -780
       ],
       "id": "5969bc48-8e28-4640-b7b3-e24a621eaf1f",
       "name": "Simple Memory"
@@ -152,8 +152,8 @@
       "type": "@n8n/n8n-nodes-langchain.agent",
       "typeVersion": 2,
       "position": [
-        1320,
-        -60
+        1280,
+        -920
       ],
       "id": "f627d5ef-170e-485e-9d96-36086a2e97bd",
       "name": "query"
@@ -260,30 +260,912 @@
     },
     {
       "parameters": {
-        "workflowId": {
-          "__rl": true,
-          "value": "yV3S61fz6xBYYbWC",
-          "mode": "list",
-          "cachedResultName": "Predict"
-        },
-        "workflowInputs": {
-          "mappingMode": "defineBelow",
-          "value": {},
-          "matchingColumns": [],
-          "schema": [],
-          "attemptToConvertTypes": false,
-          "convertFieldsToString": true
+        "promptType": "define",
+        "text": "={{ $('Webhook').item.json.body.message }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are a parser that extracts structured input from user messages.\n\nExtract:\n- date (YYYY-MM-DD)\n- type: \"inbound\" or \"outbound\"\n- start_date and end_date for the week\n\nReturn:\n{\n  \"date\": \"YYYY-MM-DD\",\n  \"type\": \"inbound|outbound\",\n  \"start_date\": \"YYYY-MM-DD\",\n  \"end_date\": \"YYYY-MM-DD\"\n}\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        -180
+      ],
+      "id": "c85223a3-976e-4e0d-ba41-6f30a4ca7c13",
+      "name": "Parsing Agent"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n\"date\": \"<YYYY-MM-DD>\",\n\"type\": \"<inbound|outbound>\",\n\"start_date\": \"<YYYY-MM-DD>\",\n\"end_date\": \"<YYYY-MM-DD>\" \n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1800,
+        -60
+      ],
+      "id": "82970123-0bc8-4e27-8048-9395340e6710",
+      "name": "Structured Output Parser"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  PLANT_NAME,\n  SUM(NET_QUANTITY_MT) AS total_outbound_mt,\n  COUNT(*) AS record_count,\n  MIN(OUTBOUND_DATE) AS start_date,\n  MAX(OUTBOUND_DATE) AS end_date\nFROM outbound\nWHERE OUTBOUND_DATE BETWEEN DATE_FORMAT(DATE_SUB('{{ $json.output.start_date }}', INTERVAL 7 DAY), '%Y-%m-01')\n                        AND '{{ $json.output.end_date }}'\nGROUP BY PLANT_NAME;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.4,
+      "position": [
+        2480,
+        -240
+      ],
+      "id": "b21b192a-0e79-4603-96fe-13a9f48e0171",
+      "name": "Execute actual query",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=\nStart date is {{ $('Parsing Agent').item.json.output.start_date }}\nEnd date is {{ $('Parsing Agent').item.json.output.end_date }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are responsible for querying the total outbound quantity per warehouse for the last 4 weeks.\n\nYou MUST use the tools in this exact sequence:\n1. 1_Get DB Schema and Tables List\n2. 2_Get Table Definition\n3. 3_Execute actual query\n\nYour job is to:\n- Use the provided `start_date` and `end_date`\n- Sum `NET_QUANTITY_MT`\n- Group by `PLANT_NAME`\n\n### Output Instructions:\nAfter querying:\n- Return a valid JSON with:\n  - \"summary\": A plain-language summary like  \n    \"OK. I have the outbound quantities per warehouse. Below are the results:\\n\\n- PLANT A: 1234.56 MT\\n- PLANT B: 789.01 MT\"\n  - \"data\": A JSON array of the raw results\n\n### If Query Fails:\nIf no results or query error, still return valid JSON:\n```json\n{\n  \"summary\": \"I could not retrieve outbound quantities due to a query error or missing data.\",\n  \"data\": []\n}\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        2260,
+        -360
+      ],
+      "id": "09e6c01e-58f3-4fc5-b9e3-e76095138976",
+      "name": "Outbound Agent"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=month is {{ $json.month }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are an AI agent responsible for retrieving the most recent forecast per warehouse.\n\nEach forecast record includes:\n- WAREHOUSE_NAME\n- FORECAST_DATE (monthly, formatted as YYYY-MM-DD)\n- TOTAL_CAPACITY_KT\n- PREDICTED_OUTBOUND_KT\n- PREDICTED_INVENTORY_KT\n\nYour task:\n- Return the forecast with the **latest FORECAST_DATE** per warehouse.\n- Use tools in this exact order:\n  1. 1_Get DB Schema and Tables List\n  2. 2_Get Table Definition\n  3. 3_Execute actual query\n\nReturn the following fields:\n- WAREHOUSE_NAME\n- FORECAST_DATE\n- TOTAL_CAPACITY_KT\n- PREDICTED_OUTBOUND_KT\n- PREDICTED_INVENTORY_KT\n\nFormat output in a JSON array. If no data is found or query fails, return an empty array.\n\nAvoid using `created_at`. Only consider the latest `FORECAST_DATE` for each warehouse.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        2260,
+        -580
+      ],
+      "id": "3ac8c325-3e71-4660-accd-a65e241d9f55",
+      "name": "Forecast agent"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT f.WAREHOUSE_NAME,\n       f.FORECAST_DATE,\n       f.TOTAL_CAPACITY_KT,\n       f.PREDICTED_OUTBOUND_KT,\n       f.PREDICTED_INVENTORY_KT\nFROM forecast f\nJOIN (\n    SELECT WAREHOUSE_NAME, MAX(FORECAST_DATE) AS LATEST_DATE\n    FROM forecast\n    GROUP BY WAREHOUSE_NAME\n) latest\nON f.WAREHOUSE_NAME = latest.WAREHOUSE_NAME\nAND f.FORECAST_DATE = latest.LATEST_DATE;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.4,
+      "position": [
+        2480,
+        -460
+      ],
+      "id": "e79644b6-fca8-4e48-93e6-8c74ba8a5c6b",
+      "name": "Execute actual query1",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=\nStart date is {{ $('Parsing Agent').item.json.output.start_date }}\nEnd date is {{ $('Parsing Agent').item.json.output.end_date }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are responsible for querying inbound material quantities for a specific week.\n\nYou MUST:\n1. Use tools in this order:\n   - 1_Get DB Schema and Tables List\n   - 2_Get Table Definition\n   - 3_Execute actual query\n\n2. Use `start_date` and `end_date` from input.\n\nReturn JSON:\n- \"summary\": inbound totals per warehouse\n- \"data\": records grouped by PLANT_NAME\n\nOn error:\n```json\n{\n  \"summary\": \"Unable to retrieve inbound quantities due to query failure.\",\n  \"data\": []\n}\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        2260,
+        -140
+      ],
+      "id": "7bb84be2-230f-4aec-ad99-22cd36c1c099",
+      "name": "Inbound Agent"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=countries are China and Singapore\nStart date is {{ $('Parsing Agent').item.json.output.start_date }}\nEnd date is {{ $('Parsing Agent').item.json.output.end_date }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "You are responsible for checking if any holidays exist for the input countries during a given week.\n\nYou will receive:\n- A list of countries (e.g., [\"China\", \"Singapore\"])\n- A `start_date` and `end_date` representing the week\n\nCheck the `holiday` database for matching entries where:\n- The `country` is in the input list\n- The holiday `start_date` or `end_date` falls within the given week\n\nReturn JSON with the following format:\n\n```json\n{\n  \"summary\": \"List of holidays in the specified countries between <start_date> and <end_date>.\",\n  \"data\": [\n    {\n      \"country\": \"China\",\n      \"name\": \"New Year\",\n      \"start_date\": \"2024-01-01\",\n      \"end_date\": null,\n      \"type\": \"Public Holiday\"\n    },\n    {\n      \"country\": \"Singapore\",\n      \"name\": \"New Year's Day\",\n      \"start_date\": \"2024-01-01\",\n      \"end_date\": null,\n      \"type\": \"Public Holiday\"\n    }\n  ]\n}\n```\n\nIf no holidays are found, return:\n```json\n{\n  \"summary\": \"No holidays found in the selected countries during this week.\",\n  \"data\": []\n}\n```\n\nDo not include explanations or SQL queries.\nEnsure the JSON is valid and clean for use by downstream agents or parsers.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        2260,
+        80
+      ],
+      "id": "bde69bf3-69d7-484e-89bf-b92df21a412b",
+      "name": "Holiday Agent"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.data }}",
+        "options": {
+          "systemMessage": "You are a supervisor AI responsible for forecasting next week’s outbound material quantity per warehouse.\n\nYou will receive structured JSON input from:\n- Forecast Agent\n- Outbound Agent (4-week trend)\n- Inbound Agent\n- Holiday Agent\n\n---\n\n## 📌 Your Task\n\nFor each warehouse:\n1. Match warehouse by name across all inputs\n2. Use these fields:\n   - `avg_outbound_trend_mt`: from outbound agent\n   - `recent_inbound_mt`: from inbound agent\n   - `predicted_inventory_kt` and `total_capacity_kt`: from forecast agent (**in KT**)\n   - `holiday_flag`: from holiday agent\n   - `start_date`, `end_date`: prediction window\n\n---\n\n## 🧮 Computation (All in **MT**)\n\n> Convert KT → MT by multiplying by 1000:\n\n```js\nconst cap_mt = total_capacity_kt * 1000;\nconst inventory_mt = predicted_inventory_kt * 1000;\n\n// Compute safe maximum outbound\nlet safe_max_outbound_mt = cap_mt - inventory_mt - recent_inbound_mt - (cap_mt * 0.10);\n\n// Apply minimum floor: 20% of average outbound\nconst min_outbound_floor = avg_outbound_trend_mt * 0.2;\nsafe_max_outbound_mt = Math.max(safe_max_outbound_mt, min_outbound_floor);\n\n// Apply final prediction\nlet predicted_outbound = Math.min(avg_outbound_trend_mt, safe_max_outbound_mt);\n\n// Holiday impact\nif (holiday_flag) {\n  predicted_outbound *= 0.85;\n}\n```\n\n---\n\n## 📤 Output Format\n\n### JSON Output\n```json\n[\n  {\n    \"warehouse_name\": \"CHINA-WAREHOUSE\",\n    \"predicted_week_start\": \"2024-01-07\",\n    \"predicted_week_end\": \"2024-01-13\",\n    \"avg_outbound_trend_mt\": 14.38,\n    \"recent_inbound_mt\": 6129.0,\n    \"predicted_inventory_kt\": 15.0,\n    \"total_capacity_kt\": 70.0,\n    \"safe_max_outbound_mt\": 2.876,\n    \"final_predicted_outbound_mt\": 2.876,\n    \"holiday_flag\": false,\n    \"explanation\": \"Predicted based on trend, adjusted for inventory and inbound. Minimum floor applied to avoid under-prediction.\"\n  }\n]\n```\n\n### Summary Output (Readable for Employee)\n```\n✅ Forecast Summary for 2024-01-07 to 2024-01-13:\n\n- CHINA-WAREHOUSE: Predicted Outbound = 2.88 MT  \n  Reason: Based on 4-week trend and safe capacity. Minimum floor applied.\n\n- SINGAPORE-WAREHOUSE: Predicted Outbound = 9.23 MT  \n  Reason: Adjusted for inventory, inbound, and holiday impact.\n```\n\n---\n\nReturn  the **friendly summary**. Do not include formulas or SQL in the output.\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        3240,
+        -260
+      ],
+      "id": "2cb36efc-1458-40a3-889c-4034c97a7f46",
+      "name": "Supervisor Agent"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  PLANT_NAME,\n  SUM(NET_QUANTITY_MT) AS total_inbound_mt,\n  COUNT(*) AS record_count,\n  MIN(INBOUND_DATE) AS start_date,\n  MAX(INBOUND_DATE) AS end_date\nFROM inbound\nWHERE INBOUND_DATE BETWEEN '{{ $json.output.start_date }}' AND '{{ $json.output.end_date }}'\nGROUP BY PLANT_NAME;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.4,
+      "position": [
+        2480,
+        -20
+      ],
+      "id": "2aaa0ad4-6ce8-4cce-b692-d7753b580eaa",
+      "name": "Execute a SQL query in MySQL",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT country, name AS holiday_name, start_date, end_date\nFROM holiday\nWHERE (\n    (start_date BETWEEN '{{ $json.output.start_date }}' AND '{{ $json.output.end_date }}')\n OR (end_date IS NOT NULL AND end_date BETWEEN '{{ $json.output.start_date }}' AND '{{ $json.output.end_date }}')\n OR (start_date <= '{{ $json.output.start_date }}' AND (end_date IS NULL OR end_date >= '{{ $json.output.end_date }}'))\n)\nAND country IN ('Singapore', 'China');",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.4,
+      "position": [
+        2480,
+        200
+      ],
+      "id": "2ad1a5ce-99ca-47b3-b355-2dbcf3ee644c",
+      "name": "Execute a SQL query in MySQL1",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.toolCalculator",
+      "typeVersion": 1,
+      "position": [
+        3360,
+        -40
+      ],
+      "id": "ce6dcd2b-9eb2-49a6-9f0c-02b7a14b7c0e",
+      "name": "Calculator"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-2.0-flash-001",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1640,
+        380
+      ],
+      "id": "7148a6bd-34bf-44d0-8d86-a9da1439e47a",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "t6BdY6pBHKBRYqwB",
+          "name": "PrAe Gemini Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "formatDate",
+        "date": "={{ $json.output.date }}",
+        "format": "custom",
+        "customFormat": "yyyy-MM",
+        "outputFieldName": "month",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        -560
+      ],
+      "id": "a152c1ff-2c0e-4230-8a81-b49fb8109539",
+      "name": "Month"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"forecast_records\": [\n    {\n      \"WAREHOUSE_NAME\": \"CHINA-WAREHOUSE\",\n      \"FORECAST_DATE\": \"2024-03-01\",\n      \"TOTAL_CAPACITY_KT\": 70.0,\n      \"PREDICTED_OUTBOUND_KT\": 22.0,\n      \"PREDICTED_INVENTORY_KT\": 35.0\n    },\n    {\n      \"WAREHOUSE_NAME\": \"SINGAPORE-WAREHOUSE\",\n      \"FORECAST_DATE\": \"2024-03-01\",\n      \"TOTAL_CAPACITY_KT\": 55.0,\n      \"PREDICTED_OUTBOUND_KT\": 9.0,\n      \"PREDICTED_INVENTORY_KT\": 38.5\n    }\n  ]\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2580,
+        -460
+      ],
+      "id": "3b9ec7f8-d311-418d-8775-bbfef54f6691",
+      "name": "Structured Output Parser1"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"o_plant_summaries\": [\n    {\n      \"PLANT_NAME\": \"CHINA-WAREHOUSE\",\n      \"total_outbound_mt\": 1959.0,\n      \"record_count\": 18,\n      \"start_date\": \"2025-06-10\",\n      \"end_date\": \"2025-07-08\"\n    }\n  ]\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2580,
+        -240
+      ],
+      "id": "bf706924-7809-47ca-9213-2d1ef7e36926",
+      "name": "Structured Output Parser2"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"i_plant_summaries\": [\n    {\n      \"PLANT_NAME\": \"CHINA-WAREHOUSE\",\n      \"total_inbound_mt\": 540.32,\n      \"record_count\": 17,\n      \"start_date\": \"2025-07-01\",\n      \"end_date\": \"2025-07-07\"\n    },\n    {\n      \"PLANT_NAME\": \"SINGAPORE-WAREHOUSE\",\n      \"total_inbound_mt\": 412.50,\n      \"record_count\": 15,\n      \"start_date\": \"2025-07-01\",\n      \"end_date\": \"2025-07-07\"\n    }\n  ]\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2580,
+        -20
+      ],
+      "id": "602496d2-3729-4608-afc8-f1075c63336b",
+      "name": "Structured Output Parser3"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"summary\": \"List of holidays in the specified countries between 2024-01-01 and 2024-01-07.\",\n  \"data\": [\n    {\n      \"country\": \"China\",\n      \"name\": \"New Year\",\n      \"start_date\": \"2024-01-01\",\n      \"end_date\": null,\n      \"type\": \"Public Holiday\"\n    },\n    {\n      \"country\": \"Singapore\",\n      \"name\": \"New Year's Day\",\n      \"start_date\": \"2024-01-01\",\n      \"end_date\": null,\n      \"type\": \"Public Holiday\"\n    }\n  ]\n}\n"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        2580,
+        200
+      ],
+      "id": "a19016da-3ff1-41d9-aab5-f237f2a22536",
+      "name": "Structured Output Parser4"
+    },
+    {
+      "parameters": {
+        "numberInputs": 4
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2740,
+        -280
+      ],
+      "id": "47b15582-9143-42fb-8c00-f29e17560907",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2900,
+        -260
+      ],
+      "id": "c52b4f5c-750d-4f22-b75b-ea93e87c7d39",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8c2f1d6f-95ed-4a25-97ce-4013976223c0",
+              "name": "data[0].output.forecast_records",
+              "value": "={{ $json.data[0].output.forecast_records }}",
+              "type": "array"
+            },
+            {
+              "id": "3e965a36-9c00-40b5-ab35-10811826ea09",
+              "name": "data[2].output.i_plant_summaries",
+              "value": "={{ $json.data[2].output.i_plant_summaries }}",
+              "type": "array"
+            },
+            {
+              "id": "e47bdd0e-3c77-4494-a563-7ce149a64c44",
+              "name": "data[1].output.o_plant_summaries",
+              "value": "={{ $json.data[1].output.o_plant_summaries }}",
+              "type": "array"
+            },
+            {
+              "id": "e7b977a3-f0c6-4d69-a880-95d15c3ba8fc",
+              "name": "data[3].output.data",
+              "value": "={{ $json.data[3].output.data }}",
+              "type": "array"
+            },
+            {
+              "id": "0ca2ecc5-038b-40c8-9d31-2ceb3fc557de",
+              "name": "data[3].output.summary",
+              "value": "={{ $json.data[3].output.summary }}",
+              "type": "string"
+            }
+          ]
         },
         "options": {}
       },
-      "type": "n8n-nodes-base.executeWorkflow",
-      "typeVersion": 1.2,
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
       "position": [
-        1400,
-        340
+        3080,
+        -260
       ],
-      "id": "0f2fad84-887f-4f84-89b8-28994140ec96",
-      "name": "Prediction workflow"
+      "id": "3f73392f-639e-4ea4-b3bc-b1d5efa4baca",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": {
+          "__rl": true,
+          "value": "inventory",
+          "mode": "list",
+          "cachedResultName": "inventory"
+        },
+        "limit": 2000,
+        "where": {
+          "values": [
+            {
+              "column": "PLANT_NAME",
+              "value": "={{ $('Parse Agent1').item.json.output.warehouse[0] }}"
+            },
+            {
+              "column": "BALANCE_AS_OF_DATE",
+              "condition": "LIKE",
+              "value": "={{ $json.closestInvDate }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        2700,
+        640
+      ],
+      "id": "5fdaa285-5b72-4927-8fac-f3b622df09a3",
+      "name": "Inventory",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT *\nFROM forecast\nWHERE \n  WAREHOUSE_NAME = '{{ $(\"Parse Agent1\").item.json.output.warehouse[0] }}'\n  AND FORECAST_DATE = (\n    SELECT MIN(FORECAST_DATE)\n    FROM forecast\n    WHERE \n      WAREHOUSE_NAME = '{{ $(\"Parse Agent1\").item.json.output.warehouse[0] }}'\n      AND FORECAST_DATE >= STR_TO_DATE('{{ $(\"ClosestInvDate\").first().json.closestInvDate }}', '%m-%d-%Y')\n  );\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        2700,
+        1180
+      ],
+      "id": "6e850b68-bf78-42aa-a18b-48697888ac90",
+      "name": "Forecast",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT *\nFROM operationcost\nWHERE \n  Plant_Mode_of_Transport = '{{ $json.warehouseNormalized }}'\n  OR Plant_Mode_of_Transport IN ('Truck', 'Marine');\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        2700,
+        1360
+      ],
+      "id": "6bdd4569-6a60-47ed-933e-f8da054fd681",
+      "name": "Operation1",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": {
+          "__rl": true,
+          "value": "inventory",
+          "mode": "list",
+          "cachedResultName": "inventory"
+        },
+        "returnAll": "={{ /*n8n-auto-generated-fromAI-override*/ $fromAI('Return_All', ``, 'boolean') }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.4,
+      "position": [
+        2240,
+        840
+      ],
+      "id": "964d1049-6146-463e-bd46-ba8c3683a349",
+      "name": "Select rows from a table in MySQL",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "formatDate",
+        "date": "={{ $json.output }}",
+        "format": "MM-dd-yyyy",
+        "outputFieldName": "closestInvDate",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        640
+      ],
+      "id": "f640572b-14d1-4524-b370-5740ed4cd89a",
+      "name": "ClosestInvDate"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT *\nFROM inbound\nWHERE \n  PLANT_NAME = '{{ $(\"Parse Agent1\").item.json.output.warehouse[0] }}'\n  AND INBOUND_DATE BETWEEN \n      STR_TO_DATE('{{ $json.oneMonthBefore }}', '%m-%d-%y')\n      AND STR_TO_DATE('{{ $(\"ClosestInvDate\").first().json.closestInvDate }}', '%m-%d-%Y');",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        2700,
+        820
+      ],
+      "id": "f7f0d647-6a71-4901-b652-239fd6be910a",
+      "name": "Inbound1",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT *\nFROM outbound\nWHERE \n  PLANT_NAME = '{{ $(\"Parse Agent1\").item.json.output.warehouse[0] }}'\n  AND OUTBOUND_DATE BETWEEN \n      STR_TO_DATE('{{ $json.oneMonthBefore }}', '%m-%d-%y')\n      AND STR_TO_DATE('{{ $(\"ClosestInvDate\").first().json.closestInvDate }}', '%m-%d-%Y');\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySql",
+      "typeVersion": 2.4,
+      "position": [
+        2700,
+        1000
+      ],
+      "id": "9ca7e63d-5159-4ec3-8850-40be6c1b80ab",
+      "name": "Outbound1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const warehouseRaw = $('Parse Agent1').first().json.output.warehouse[0];\nconst warehouseNormalized = warehouseRaw.replace(/-/g, ' ').toUpperCase();\nreturn [{warehouseNormalized}]\n// Use warehouseNormalized in query\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2500,
+        1360
+      ],
+      "id": "47e8e0ff-9ee4-43fa-9ede-16e0f18e840f",
+      "name": "format warehouse"
+    },
+    {
+      "parameters": {
+        "jsCode": "const inputStr = $('ClosestInvDate').first().json.closestInvDate; // e.g. \"12-31-2023\"\n\n// Parse the date from MM-DD-YYYY format\nconst [month, day, year] = inputStr.split('-').map(Number);\nconst inputDate = new Date(year, month - 1, day);\n\n// Subtract 1 month (but JS may roll over to next month if day doesn't exist)\nconst newMonth = inputDate.getMonth() - 1;\nconst newYear = newMonth < 0 ? inputDate.getFullYear() - 1 : inputDate.getFullYear();\nconst correctedMonth = (newMonth + 12) % 12;\n\n// Find the last valid day of the new month\nconst lastDayOfNewMonth = new Date(newYear, correctedMonth + 1, 0).getDate();\nconst newDay = Math.min(day, lastDayOfNewMonth);\n\n// Construct final date\nconst oneMonthBefore = new Date(newYear, correctedMonth, newDay);\n\n// Format as MM-DD-YY\nconst formattedDate =\n  String(oneMonthBefore.getMonth() + 1).padStart(2, '0') + '-' +\n  String(oneMonthBefore.getDate()).padStart(2, '0') + '-' +\n  String(oneMonthBefore.getFullYear());\n\nreturn [{\n  oneMonthBefore: formattedDate\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2420,
+        820
+      ],
+      "id": "76b79a1a-78f0-435a-8405-ed547c9a077e",
+      "name": "get 1m before"
+    },
+    {
+      "parameters": {
+        "operation": "formatDate",
+        "date": "={{ $json.output.planning_date }}",
+        "format": "yyyy-MM-dd",
+        "options": {
+          "includeInputFields": false
+        }
+      },
+      "type": "n8n-nodes-base.dateTime",
+      "typeVersion": 2,
+      "position": [
+        1780,
+        640
+      ],
+      "id": "f6583a92-4fd9-4a4c-9a0c-077b67c9ffe1",
+      "name": "FormatDate"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Query Inventory Table where PLANT_NAME is {{ $('Parse Agent1').item.json.output.warehouse[0] }}, and BALANCE_AS_OF_DATE is most recent to {{ $('Parse Agent1').item.json.output.planning_date }}. Return only date, dont caontain any sentence or words",
+        "options": {
+          "systemMessage": "=You are an agent designed to interact with a SQL database.\n\nYour objective is to query the `Inventory` table and return **only one date**:  \n👉 the exact closest `BALANCE_AS_OF_DATE` that is **less than or equal to** the following target date:  \n{{ $('Parse Agent1').item.json.output.planning_date }}\n\n### 🎯 Goal:\n- Return **only the single latest date** in the `BALANCE_AS_OF_DATE` column that is ≤ the planning date.\n- Do **not** return any data rows — only the date itself.\n\n---\n\n## 🛠 Tool Usage Sequence\n\nYou must use the tools in the following strict order:\n\n1. **1_Get DB Schema and Tables List**  \n   → Verify that the `Inventory` table exists.\n\n2. **2_Get Table Definition**  \n   → Retrieve column names and data types, especially `BALANCE_AS_OF_DATE`.\n\n3. **3_Execute actual query**  \n   → Construct a query that selects only the **maximum date ≤ planning date** from `Inventory`.\n\n---\nOutput return only the date"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        2080,
+        640
+      ],
+      "id": "3299d1aa-369b-4f0d-9cab-21615db7d740",
+      "name": "Planning Date"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "InboundData",
+        "include": "specifiedFields",
+        "fieldsToInclude": "INBOUND_DATE, PLANT_NAME, MATERIAL_NAME, NET_QUANTITY_MT",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2940,
+        820
+      ],
+      "id": "491fa8aa-1980-416b-9a93-11ab6904cac8",
+      "name": "Aggregate1",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "OutboundData",
+        "include": "specifiedFields",
+        "fieldsToInclude": "OUTBOUND_DATE, PLANT_NAME, MODE_OF_TRANSPORT, MATERIAL_NAME ,CUSTOMER_NUMBER, NET_QUANTITY_MT",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2940,
+        1000
+      ],
+      "id": "84e0b2ff-0f55-4d39-b118-35bbb8c67c4c",
+      "name": "Aggregate2",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "ForecastData",
+        "include": "specifiedFields",
+        "fieldsToInclude": "WAREHOUSE_NAME, FORECAST_DATE, TOTAL_CAPACITY_KT, PREDICTED_OUTBOUND_KT, PREDICTED_INVENTORY_KT",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2940,
+        1180
+      ],
+      "id": "a8bea284-6857-44b4-adc2-5917f7ee9b62",
+      "name": "Aggregate3",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "OperationCostData",
+        "include": "specifiedFields",
+        "fieldsToInclude": "Operation, Plant_Mode_of_Transport, Cost, Currency",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2940,
+        1360
+      ],
+      "id": "4cbf1f0b-506b-4277-a5da-a6f5ccb6e1df",
+      "name": "Aggregate4",
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('When chat message received').item.json.chatInput }}",
+        "options": {
+          "systemMessage": "=You are a Warehouse Planning AI Agent responsible for generating an **Outbound Plan** for a warehouse. Your plan must ensure all outbound needs are met while preventing overflow and minimizing degradation losses.\n\nYou are provided with the following structured datasets in this format:\n[\n{\n\"InventoryData\": \n[...] // n items\n},\n{\n\"InboundData\": \n[...] // n items\n},\n{\n\"ForecastData\": \n[...] // 1 items\n},\n{\n\"OperationCostData\": \n[...] // 3 items\n}\n]\n\n---\n🗂 **Input Data (Already Pre-Processed)**\n\n1. `InventoryData`: A snapshot of all materials currently in the warehouse, broken down by batch.\n   - `BALANCE_AS_OF_DATE`: Snapshot date (planning baseline)\n   - `PLANT_NAME`: Warehouse name\n   - `MATERIAL_NAME`: Name of the material\n   - `BATCH_NUMBER`: Unique batch identifier\n   - `UNRESRICTED_STOCK`: Quantity available (in MT)\n   - `STOCK_SELL_VALUE`: Sell value of the material in this batch\n   - `STOCK_UNIT`: Unit of measurement\n   - `CURRENCY`: Currency used\n\n2. `InboundData`: Historical transactions showing materials imported into the warehouse\n   - `INBOUND_DATE`\n   - `PLANT_NAME`\n   - `MATERIAL_NAME`\n   - `NET_QUANTITY_MT`\n\n\n3. `ForecastData`: Predicted monthly outbound demand and warehouse capacity\n   - `WAREHOUSE_NAME`\n   - `FORECAST_DATE` (Planning target month)\n   - `PREDICTED_OUTBOUND_KT`: Forecasted outbound volume (in kilotons)\n   - `PREDICTED_INVENTORY_KT`: Maximum allowed inventory volume\n\n4. `OperationCostData`: Cost-related information for handling overflow or transfer\n   - `Operation`: \"Inventory Storage per MT per day\" or \"Transfer cost per container\"\n   - `Plant_Mode_of_Transport`: Warehouse name or transport method\n   - `Cost`: Numeric cost value\n   - `Currency`\n\nYou also have access to using SQL Tool:\n- `Material Master`:\n   - `MATERIAL_NAME`, `SHELF_LIFE_IN_MONTH`, `POLYMER_TYPE`, `DOWNGRADE_VALUE_LOST_PERCENT`\n- `Holiday Table`: use to check if the date in monthly plan is a part of holiday consider to export item lower than usual.\n\n---\n🎯 **Goal**:\n\n1. Create an **Outbound Plan** for the month based on forecasted demand.\n2. Fulfill forecasted outbound volume (`PREDICTED_OUTBOUND_KT`) as much as possible.\n3. Use the **InventoryData** as the source of shipments — each shipment must come from a batch.\n4. Follow **FIFO (First-In, First-Out)**:\n   - Prioritize older batches (determined using `INBOUND_DATE`)\n   - Prefer batches that are closest to expiry based on `SHELF_LIFE_IN_MONTH`\n5. Minimize **degradation loss**:\n   - A batch past its shelf-life is considered downgraded\n   - Estimate degradation loss = `STOCK_SELL_VALUE * (DOWNGRADE_VALUE_LOST_PERCENT / 100)` if it is not used before expiration\n6. Avoid **warehouse overflow**:\n   - Inventory after outbound must not exceed `PREDICTED_INVENTORY_KT`\n   - If overflow occurs:\n     - Suggest transfer to other warehouses (using 24.75MT containers)\n     - Or suggest temporary storage extension (calculate cost per MT per day)\n7. Optimize for cost and material value:\n   - Transfer Cost = ceil(overflow_MT / 24.75) * container cost\n   - Storage Cost = overflow_MT * days * storage cost per MT/day\n\n---\n📤 **Expected Output Format (JSON per material & batch)**\n\n```json\n[\n  {\n    \"PLANT_NAME\": \"SINGAPORE-WAREHOUSE\",\n    \"MATERIAL_NAME\": \"Material A\",\n    \"BATCH_NUMBER\": \"A1\",\n    \"PLANNED_OUTBOUND_MT\": 25,\n    \"REMAINING_STOCK\": 10,\n    \"DEGRADATION_COST\": 0,\n    \"OVERFLOW_ACTION\": \"None\",\n    \"TRANSFER_COST\": 0,\n    \"STORAGE_COST\": 0\n  },\n  ...\n]\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        3560,
+        1000
+      ],
+      "id": "1cdd15e5-e070-4317-9e8b-ae1a14bde5e4",
+      "name": "Planner Agent"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $('When chat message received').item.json.chatInput }}",
+        "options": {
+          "systemMessage": "=You are a Warehouse Outbound Optimization AI Agent. Your task is to optimize a **preliminary outbound plan** produced by the Planner Agent. Your objective is to improve cost-efficiency, prevent warehouse overflow, and reduce degradation losses by reallocating inventory, adjusting transfer/storage actions, and fine-tuning quantities within allowable limits.\n\n---\n🗂 **Inputs You Will Receive**\n\n1. `PreliminaryPlan`: List of outbound allocations per batch from the Planner Agent.\n   - `PLANT_NAME`\n   - `MATERIAL_NAME`\n   - `BATCH_NUMBER`\n   - `PLANNED_OUTBOUND_MT`\n   - `REMAINING_STOCK`\n   - `DEGRADATION_COST` (if not used)\n   - `OVERFLOW_ACTION`\n   - `TRANSFER_COST`\n   - `STORAGE_COST`\n\n2. `InventoryData`: Full inventory per batch.\n3. `ForecastData`: Per-month predicted outbound and max inventory capacity.\n4. `OperationCostData`: Costs per storage or per container transfer.\n5. `MaterialMasterData`:\n   - `SHELF_LIFE_IN_MONTH`\n   - `DOWNGRADE_VALUE_LOST_PERCENT`\n   - `POLYMER_TYPE` (if needed)\n6. (Optional) `InboundData`, `OutboundData` for historical analysis if relevant.\n\n---\n🎯 **Goals**\n\nYour task is to optimize the outbound plan while meeting the following goals:\n\n1. **Maximize fulfillment of forecasted outbound** volume per warehouse per material.\n2. **Minimize overall operational cost**:\n   - Includes degradation loss, transfer cost, and storage cost.\n   - Consider trade-offs (e.g., slight increase in transfer to avoid large degradation cost).\n3. **Avoid or mitigate overflow**:\n   - Ensure that post-outbound total inventory at the plant does not exceed `PREDICTED_INVENTORY_KT`.\n   - If overflow occurs, recommend lowest-cost solution:\n     - a. **Transfer to other warehouses** (cost per 24.75MT container)\n     - b. **Temporary storage** (cost per MT per day)\n4. **Prioritize batches by expiry (FIFO + shelf life)**:\n   - Deprioritize batches that are not close to expiry unless overflow/degradation makes it necessary.\n\n---\n🛠️ **Allowed Actions**\n\nYou can modify the planner’s output by:\n\n- Increasing or decreasing `PLANNED_OUTBOUND_MT` of a batch (without exceeding inventory).\n- Reallocating outbound between batches (while keeping same total).\n- Adding or modifying `OVERFLOW_ACTION` with a lower-cost alternative.\n- Replacing or combining actions (e.g., mix partial transfer + partial storage).\n- Reducing expected `DEGRADATION_COST` by using near-expiry batches first.\n- Adding `NOTES` to clarify optimization logic.\n\n---\n📤 **Expected Output Format (JSON)**\n\n```json\n[\n  {\n    \"PLANT_NAME\": \"SINGAPORE-WAREHOUSE\",\n    \"MATERIAL_NAME\": \"Material A\",\n    \"BATCH_NUMBER\": \"A1\",\n    \"OPTIMIZED_OUTBOUND_MT\": 30,\n    \"REMAINING_STOCK\": 5,\n    \"DEGRADATION_COST\": 100,\n    \"OVERFLOW_ACTION\": \"Transfer to CHINA-WAREHOUSE\",\n    \"TRANSFER_COST\": 250,\n    \"STORAGE_COST\": 0,\n    \"NOTES\": \"Increased outbound to avoid shelf-life degradation\"\n  },\n  ...\n]\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [
+        3940,
+        1000
+      ],
+      "id": "bb3ae36d-4cf5-419b-86da-f8f44a7a8ecf",
+      "name": "Optimization Agent"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": {
+          "__rl": true,
+          "value": "materialmaster",
+          "mode": "list",
+          "cachedResultName": "materialmaster"
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.4,
+      "position": [
+        3760,
+        1240
+      ],
+      "id": "bc81410d-f80b-49e0-8d81-34b8e6201b0a",
+      "name": "select material2",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": {
+          "__rl": true,
+          "value": "holiday",
+          "mode": "list",
+          "cachedResultName": "holiday"
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.4,
+      "position": [
+        3880,
+        1240
+      ],
+      "id": "3daa14b0-6ed7-4594-8251-3b0da551cf4f",
+      "name": "select holidyas2",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.toolCalculator",
+      "typeVersion": 1,
+      "position": [
+        3580,
+        1240
+      ],
+      "id": "153ecffe-7853-4d44-993c-c5e53a622693",
+      "name": "Calculator2"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": {
+          "__rl": true,
+          "value": "materialmaster",
+          "mode": "list",
+          "cachedResultName": "materialmaster"
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.4,
+      "position": [
+        4200,
+        1220
+      ],
+      "id": "409e84e6-9271-4169-bae0-04870301d517",
+      "name": "select material3",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "table": {
+          "__rl": true,
+          "value": "holiday",
+          "mode": "list",
+          "cachedResultName": "holiday"
+        },
+        "returnAll": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.mySqlTool",
+      "typeVersion": 2.4,
+      "position": [
+        4340,
+        1220
+      ],
+      "id": "d19f9008-f9cf-47e8-b42e-2589e1b23350",
+      "name": "select holidyas3",
+      "credentials": {
+        "mySql": {
+          "id": "68XnIwQJDJzVWc4q",
+          "name": "MySQL account"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "@n8n/n8n-nodes-langchain.toolCalculator",
+      "typeVersion": 1,
+      "position": [
+        4080,
+        1220
+      ],
+      "id": "8a2cc13f-2fe2-4fd5-ab4f-2f13367f0ba0",
+      "name": "Calculator3"
+    },
+    {
+      "parameters": {
+        "numberInputs": 5
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        3240,
+        960
+      ],
+      "id": "88498815-c6cc-445e-8b1c-39034b8a78ae",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"planning_date\": \"YYYY-MM-DD\",\n  \"warehouse\": [\"CHINA-WAREHOUSE\", \"SINGAPORE-WAREHOUSE\"]\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1540,
+        840
+      ],
+      "id": "f9d4528a-e796-4a0d-927d-8919136fd3ad",
+      "name": "Structured Output Parser5"
+    },
+    {
+      "parameters": {
+        "modelName": "models/gemini-1.5-flash",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        1500,
+        1100
+      ],
+      "id": "df4fe4cf-74f1-43a4-93b6-e5282316df27",
+      "name": "Google Gemini Chat Model1",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "WBKeeOj9FL5uhRWh",
+          "name": "Google Gemini(PaLM) Api account 4"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "InventoryData",
+        "include": "specifiedFields",
+        "fieldsToInclude": "BALANCE_AS_OF_DATE, PLANT_NAME, MATERIAL_NAME, BATCH_NUMBER, UNRESRICTED_STOCK, STOCK_UNIT, STOCK_SELL_VALUE, CURRENCY",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2940,
+        640
+      ],
+      "id": "de27fe51-789d-422f-aa8e-469fef65e326",
+      "name": "Aggregate5",
+      "alwaysOutputData": true
     }
   ],
   "pinData": {},
@@ -392,15 +1274,597 @@
         ],
         [
           {
-            "node": "Prediction workflow",
+            "node": "Parsing Agent",
             "type": "main",
             "index": 0
           }
         ],
-        []
+        [
+          {
+            "node": "FormatDate",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     },
-    "Prediction workflow": {
+    "Parsing Agent": {
+      "main": [
+        [
+          {
+            "node": "Outbound Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Inbound Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Holiday Agent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Month",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Parsing Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute actual query": {
+      "ai_tool": [
+        [
+          {
+            "node": "Outbound Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outbound Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Forecast agent": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute actual query1": {
+      "ai_tool": [
+        [
+          {
+            "node": "Forecast agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inbound Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Holiday Agent": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query in MySQL": {
+      "ai_tool": [
+        [
+          {
+            "node": "Inbound Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute a SQL query in MySQL1": {
+      "ai_tool": [
+        [
+          {
+            "node": "Holiday Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculator": {
+      "ai_tool": [
+        [
+          {
+            "node": "Supervisor Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Parsing Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Holiday Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Inbound Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Outbound Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Supervisor Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Forecast agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Month": {
+      "main": [
+        [
+          {
+            "node": "Forecast agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Forecast agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser2": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Outbound Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser3": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Inbound Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser4": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "Holiday Agent",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Supervisor Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Supervisor Agent": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inventory": {
+      "main": [
+        [
+          {
+            "node": "Aggregate5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Forecast": {
+      "main": [
+        [
+          {
+            "node": "Aggregate3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Operation1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select rows from a table in MySQL": {
+      "ai_tool": [
+        [
+          {
+            "node": "Planning Date",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ClosestInvDate": {
+      "main": [
+        [
+          {
+            "node": "Inventory",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get 1m before",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Inbound1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outbound1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "format warehouse": {
+      "main": [
+        [
+          {
+            "node": "Operation1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get 1m before": {
+      "main": [
+        [
+          {
+            "node": "Inbound1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Outbound1",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Forecast",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "format warehouse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FormatDate": {
+      "main": [
+        [
+          {
+            "node": "Planning Date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Planning Date": {
+      "main": [
+        [
+          {
+            "node": "ClosestInvDate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Aggregate2": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "Aggregate3": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Aggregate4": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 4
+          }
+        ]
+      ]
+    },
+    "Planner Agent": {
+      "main": [
+        [
+          {
+            "node": "Optimization Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "select material2": {
+      "ai_tool": [
+        [
+          {
+            "node": "Planner Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "select holidyas2": {
+      "ai_tool": [
+        [
+          {
+            "node": "Planner Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculator2": {
+      "ai_tool": [
+        [
+          {
+            "node": "Planner Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "select material3": {
+      "ai_tool": [
+        [
+          {
+            "node": "Optimization Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "select holidyas3": {
+      "ai_tool": [
+        [
+          {
+            "node": "Optimization Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculator3": {
+      "ai_tool": [
+        [
+          {
+            "node": "Optimization Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Planner Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Planning Date",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Planner Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          },
+          {
+            "node": "Optimization Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate5": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Optimization Agent": {
       "main": [
         [
           {
@@ -416,7 +1880,7 @@
   "settings": {
     "executionOrder": "v1"
   },
-  "versionId": "3e2e605b-43f4-4a83-b8b2-932ca186473a",
+  "versionId": "bcd3db6f-b2a7-4c80-b0cf-068194cb7e36",
   "meta": {
     "templateCredsSetupCompleted": true,
     "instanceId": "a0b68c5daecd39256f0202a7549a67532aead671cc22ccd597f36cc6f8ccc86b"
